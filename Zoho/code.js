@@ -7,18 +7,21 @@ const DESK_HOST = (zone == 0 ? "desk.zoho.com.cn" : "desk.zoho.com");
 
 // ===============================
 
-const refreshToken = await self.storage.get("refresh_token");
+let refreshToken = await self.storage.get("refresh_token");
+let accessToken = await self.storage.get("access_token");
 
 // Update token
-const setToken = async (result) => {
+const updateStorage = async (result) => {
   const dueTime = new Date().getTime() + (result.expires_in - 60) * 1000; //提前60秒到期
   await self.storage.set("access_token", result.access_token);
   await self.storage.set("refresh_token", result.refresh_token);
   await self.storage.set("due_time", dueTime);
   await self.storage.del("department_id");
-  system.printf("authorization completed，token expiration time: ", dueTime);
+  system.printf("Authorization successful, token expiration time:", dueTime);
 
   await getDefaultDepartmentId(result.access_token);
+
+  access_token = result.access_token;
 };
 
 // Empty token
@@ -32,8 +35,8 @@ const delToken = async () => {
 const authorization = async () => {
 
   if (refreshToken != null) {
-    system.printf("You have authorize this application");
-    return;
+    system.printf("The application has been authorized");
+    return false;
   }
   let url = `https://${OAUTH_HOST}/oauth/v2/token?code=%s&grant_type=authorization_code&client_id=%s&client_secret=%s&access_type=offline`;
   url = await untils.format(url, code, clientId, clientSecret);
@@ -41,16 +44,18 @@ const authorization = async () => {
   const { err, res } = await http.send("post", url, { timeout });
   if (err) {
     system.printf("authorization Error -1", err);
-    return;
+    return false;
   }
 
   if (res.data.error || !res.data.access_token || res.status != 200) {
     system.printf("authorization Error -2", err);
     system.printf(res.data);
-    return;
+    return false;
   }
 
-  await setToken(res.data);
+  await updateStorage(res.data);
+  refreshToken = await self.storage.get("refresh_token");
+  return true;
 };
 
 // Check token expiration
@@ -59,12 +64,12 @@ const checkToken = async () => {
   if (dueTime == null) return -1;
   const time = dueTime - new Date().getTime();
   if (time > 0) {
-    system.printf(`time to expiration ${time}`);
+    system.printf(`Time remaining to expire ${time}`);
     return 1;
   }
 
 
-  system.printf("Authentication token expired，refreshing token··")
+  system.printf("Token expired, updating token ...")
   let url = `https://${OAUTH_HOST}/oauth/v2/token?refresh_token=%s&client_id=%s&client_secret=%s&grant_type=refresh_token`;
   url = await untils.format(url, refreshToken, clientId, clientSecret);
 
@@ -79,12 +84,12 @@ const checkToken = async () => {
     system.printf(res.data);
     return -3;
   }
-  await setToken(res.data);
+  await updateStorage(res.data);
   return 0;
 
 };
 
-// Get the default department ID
+// Take the default department ID.
 const getDefaultDepartmentId = async (accessToken) => {
   const url = `https://${DESK_HOST}/api/v1/departments`;
   const { err, res } = await http.send("get", url, {
@@ -111,15 +116,14 @@ const getDefaultDepartmentId = async (accessToken) => {
 
   if (department) {
     await self.storage.set("department_id", department.id);
-    system.printf("get department info successfully");
     return true;
   }
 
-  system.printf("get department info failed!");
+  system.printf("Failed to obtain departmentID!");
   return false;
 };
 
-// Switching priority
+// Conversion priority
 const getZohoPriorityByEasiioIssue = () => {
   switch (self.issue.priority) {
     case '5':
@@ -137,7 +141,10 @@ const getZohoPriorityByEasiioIssue = () => {
   }
 };
 
-const createTicket = async (accessToken, departmentId) => {
+
+
+// Create Ticket
+const createTicket = async (departmentId) => {
   const url = `https://${DESK_HOST}/api/v1/tickets`;
   const { reporter } = self.issue;
   const body = {
@@ -179,7 +186,8 @@ const createTicket = async (accessToken, departmentId) => {
 };
 
 
-const updateTicket = async (accessToken) => {
+//  Update Ticket
+const updateTicket = async () => {
   const ticketId = await self.issue.get("zoho_id");
   if (ticketId == null) {
     system.printf(`Not Found ZoHo TicketId  IssueID:${self.issue.id}`);
@@ -216,7 +224,8 @@ const updateTicket = async (accessToken) => {
   system.printf("updateTicket ID:%s", res.data.id);
 }
 
-const deleteTicket = async (accessToken) => {
+// delete Ticket
+const deleteTicket = async () => {
   const ticketId = await self.issue.get("zoho_id");
   if (ticketId == null) {
     system.printf(`Not Found ZoHo TicketId  IssueID:${self.issue.id}`);
@@ -254,9 +263,11 @@ const deleteTicket = async (accessToken) => {
 
 // Entry function
 const main = async () => {
-  if ((self.action != IssueAction.call && self.action != IssueAction.test) && refreshToken == null) {
-    system.printf("Please authenticate application first!");
-    return;
+
+  if (refreshToken == null) {
+    system.printf("First run initialize OAuth");
+    if ((await authorization()) == false)
+      return;
   }
 
   // Check token expiration
@@ -268,8 +279,6 @@ const main = async () => {
 
   }
 
-  const accessToken = await self.storage.get("access_token");
-
   // Check department ID
   if (accessToken && !(await self.storage.has("department_id")))
     if (!await getDefaultDepartmentId(accessToken))
@@ -277,31 +286,31 @@ const main = async () => {
 
   const departmentId = await self.storage.get("department_id")
 
-
-
   switch (self.action) {
     case IssueAction.create:
-      await createTicket(accessToken, departmentId);
+      await createTicket(departmentId);
       break;
     case IssueAction.update:
-      await updateTicket(accessToken);
-      break;
-    case IssueAction.softDelete:
-      await deleteTicket(accessToken);
+      await updateTicket();
       break;
     case IssueAction.hardDelete:
-      break;
-    case IssueAction.test:
-      break;
-    case IssueAction.call:
-      await authorization();
-      break;
-    case IssueAction.column:
-      system.printf("This App do not support manual operation");
+      await deleteTicket();
       break;
   }
-
 };
 
-// Is currently in async function
-return await main();
+//Filter disallowed actions.
+
+const allowAction = [IssueAction.create, IssueAction.update, IssueAction.hardDelete];
+
+
+const index = allowAction.findIndex((action) => {
+  return action == self.action;
+});
+if (index != -1)
+  await main();
+else
+  return false;
+
+
+

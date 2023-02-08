@@ -1,50 +1,134 @@
-const { base, apikey, tableName } = self.setup;
-
-
-const timeout = 10000;
-
-const baseURL = `https://api.airtable.com/v0/${base}/${tableName}`;
+const g_timeout = 20000;
+let g_tableId = await self.storage.get("table_id");
+const g_ticketId = await self.issue.get("airtable_id");
+const { g_baseId, g_accessToken, g_tableName } = self.setup;
 
 
 // Set authentication and accept type http header
-const headers = {
-  "Authorization": `Bearer ${apikey}`,
-  "Content-Type": "application/json",
-  "Accept": "application/json"
-}
-
-
-const findTicketId = async () => {
-  const ticketId = await self.issue.get("airtable_id");
-  if (ticketId == null) {
-    system.printf(`not found ticketId,issueId:${self.issue.id}`);
-    return -1;
-  }
-  return ticketId;
+const g_headers = {
+  "Authorization": `Bearer ${g_accessToken}`,
+  "Content-Type": "application/json"
 };
 
+
+const getPriorityText = () => {
+  switch (self.issue.priority) {
+    case '5':
+      return "Highest";
+    case '4':
+      return "High";
+    case '3':
+      return "Medium";
+    case '2':
+      return "Low";
+    case '1':
+      return "Lowest";
+    default:
+      return "Medium";
+  }
+};
 const parseAirTableFields = (issue) => {
   return {
     "title": issue.title,
-    "orderId": issue.orderId,
-    "description": issue.description,
-    "descriptionText": issue.descriptionText,
+    "description": issue.descriptionText,
     "type": issue.type,
     "status": issue.status,
-    "priority": issue.priority,
-    "reporterId": issue.reporterId,
-    "projectId": issue.projectId,
-    "organizationId": issue.organizationId,
-    "latitude": issue.latitude,
-    "longitude": issue.longitude,
+    "priority": getPriorityText(),
     "dueDate": issue.dueDate,
+    "taskSize": issue.taskSize,
+    "userName": issue.reporter.name,
+    "userEmail": issue.reporter.email
   };
 }
 
 
+const createTable = async () => {
+  const url = `https://api.airtable.com/v0/meta/bases/${g_baseId}/tables`;
+  const data = {
+    "fields": [
+      {
+        "name": "title",
+        "type": "singleLineText"
+      },
+      {
+        "name": "type",
+        "type": "singleLineText"
+      },
+      {
+        "name": "status",
+        "type": "singleLineText"
+      },
+      {
+        "name": "priority",
+        "type": "singleLineText"
+      },
+      {
+        "name": "taskSize",
+        "type": "singleLineText"
+      },
+      {
+        "name": "dueDate",
+        "type": "singleLineText"
+      },
+      {
+        "name": "userName",
+        "type": "singleLineText"
+      },
+      {
+        "name": "userEmail",
+        "type": "singleLineText"
+      },
+      {
+        "name": "description",
+        "type": "multilineText"
+      },
+      {
+        "name": "file_1",
+        "type": "multipleAttachments"
+      },
+      {
+        "name": "file_2",
+        "type": "multipleAttachments"
+      },
+      {
+        "name": "file_3",
+        "type": "multipleAttachments"
+      },
+      {
+        "name": "file_4",
+        "type": "multipleAttachments"
+      },
+      {
+        "name": "file_5",
+        "type": "multipleAttachments"
+      }
+    ],
+    "name": g_tableName
+  };
+
+  const { err, res } = await http.send("post", url,
+    {
+      headers: g_headers, data, timeout: g_timeout
+    });
+  if (err) {
+    system.printf("request Error", err);
+    return false;
+  }
+  if (!(res.status == 200 && res.data.id != null))
+    system.printf("createTable Error", res);
+  else {
+    g_tableId = res.data.id;
+    system.printf(`Table Created ID:${g_tableId}`);
+    await self.storage.set("table_id", g_tableId);
+    return true;
+  }
+
+  return false;
+};
+
 
 const createIssue = async () => {
-
+  const url = `https://api.airtable.com/v0/${g_baseId}/${g_tableId}`
   const data = {
     "records": [
       {
@@ -52,12 +136,12 @@ const createIssue = async () => {
       }
     ]
   };
-  const { err, res } = await http.send("post", baseURL,
+  const { err, res } = await http.send("post", url,
     {
-      headers, data, timeout
+      headers: g_headers, data, timeout: g_timeout
     });
   if (err) {
-    system.printf("createIssue Error", err);
+    system.printf("request Error", err);
     return;
   }
 
@@ -71,21 +155,18 @@ const createIssue = async () => {
 };
 
 const updateIssue = async () => {
-  const ticketId = await findTicketId();
-
-  if (ticketId == -1) return;
-  system.printf(ticketId);
+  const url = `https://api.airtable.com/v0/${g_baseId}/${g_tableId}`
   const data = {
     "records": [
       {
-        "id": ticketId,
+        "id": g_ticketId,
         "fields": parseAirTableFields(self.issue)
       }
     ]
   };
-  const { err, res } = await http.send("patch", baseURL,
+  const { err, res } = await http.send("patch", url,
     {
-      headers, data, timeout
+      headers: g_headers, data, timeout: g_timeout
     });
   if (err) {
     system.printf("updateIssue Error", err);
@@ -101,17 +182,13 @@ const updateIssue = async () => {
 };
 
 const deleteIssue = async () => {
-  const ticketId = await findTicketId();
-
-  if (ticketId == -1) return;
-
-
-  const { err, res } = await http.send("delete", `${baseURL}?records[]=${ticketId}`,
+  const url = `https://api.airtable.com/v0/${g_baseId}/${g_tableId}`
+  const { err, res } = await http.send("delete", `${url}?records[]=${g_ticketId}`,
     {
-      headers, timeout
+      headers: g_headers, timeout: g_timeout
     });
   if (err) {
-    system.printf("deleteIssue Error", err);
+    system.printf("Delete Issue Error", err);
     return;
   }
 
@@ -128,8 +205,19 @@ const deleteIssue = async () => {
 // ======================================================================
 
 
+
 // Entry function
 const main = async () => {
+  if (g_tableId == null) {
+    if ((await createTable()) != true)
+      return;
+  }
+
+  if (self.action != IssueAction.create && g_ticketId == null) {
+    system.printf("Not Found TicketId");
+    return;
+  }
+
   switch (self.action) {
     case IssueAction.create:
       await createIssue();
@@ -137,20 +225,21 @@ const main = async () => {
     case IssueAction.update:
       await updateIssue();
       break;
-    case IssueAction.softDelete:
-      break;
     case IssueAction.hardDelete:
       await deleteIssue();
-      break;
-    case IssueAction.test:
-      break;
-    case IssueAction.call:
-      break;
-    case IssueAction.column:
       break;
   }
 
 };
 
-// Is currently in async function
-return await main();
+//Filter disallowed actions.
+
+const allowAction = [IssueAction.create, IssueAction.update, IssueAction.hardDelete];
+
+const index = allowAction.findIndex((action) => {
+  return action == self.action;
+});
+if (index != -1)
+  await main();
+else
+  return false;

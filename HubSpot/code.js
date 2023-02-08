@@ -1,6 +1,7 @@
 const { token, timeout } = self.setup;
 const baseURL = "https://api.hubapi.com";
 
+
 // ======================================================================
 
 // Set authentication and accept type http header
@@ -8,6 +9,12 @@ const headers = {
   "Authorization": `Bearer ${token}`,
   "Content-Type": "application/json"
 }
+
+const searchTicket = async () => {
+  const ticketId = await self.issue.get("hubspot_id");
+  if (ticketId == null) return -1;
+  return ticketId;
+};
 
 const createIssue = async (issue) => {
   const data = {
@@ -35,12 +42,6 @@ const createIssue = async (issue) => {
 
 };
 
-
-const searchTicket = async () => {
-  const ticketId = await self.issue.get("hubspot_id");
-  if (ticketId == null) return -1;
-  return ticketId;
-};
 
 const updateIssue = async (issue) => {
   const ticketId = await searchTicket();
@@ -93,7 +94,9 @@ const deleteIssue = async () => {
 
 
 // ======================================================================
-// Entry function
+
+
+
 const main = async () => {
   switch (self.action) {
     case IssueAction.create:
@@ -102,20 +105,22 @@ const main = async () => {
     case IssueAction.update:
       await updateIssue(self.issue);
       break;
-    case IssueAction.softDelete:
-      await deleteIssue();
-      break;
     case IssueAction.hardDelete:
-      break;
-    case IssueAction.test:
-      break;
-    case IssueAction.call:
-      break;
-    case IssueAction.column:
+      await deleteIssue();
       break;
   }
 
 };
 
-// Is currently in async function
-return await main();
+
+//Filter disallowed actions.
+
+const allowAction = [IssueAction.create, IssueAction.update, IssueAction.hardDelete];
+
+const index = allowAction.findIndex((action) => {
+  return action == self.action;
+});
+if (index != -1)
+  await main();
+else
+  return false;

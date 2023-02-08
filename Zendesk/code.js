@@ -4,12 +4,15 @@ const baseURL = `https://${subdomain}.${host}.com`;
 const authBase64 = await untils.encodeConver(`${username}:${password}`, "ascii", "base64");
 
 
-// Set authentication and accept type http header
+
+
+// 设置身份和JSON协议头
 const headers = {
   "Authorization": `Basic ${authBase64}`,
   "Content-Type": "application/json",
   "Accept": "application/json"
 }
+
 
 const findTicketId = async () => {
   const ticketId = await self.issue.get("zendesk_id");
@@ -21,7 +24,7 @@ const findTicketId = async () => {
 };
 
 
-// Switching priority
+// 转换优先级
 const getZenDeskPriorityByEasiioIssue = () => {
   switch (self.issue.priority) {
     case '5':
@@ -40,6 +43,7 @@ const getZenDeskPriorityByEasiioIssue = () => {
 };
 
 
+// 同步创建zendesk issue
 const createIssue = async () => {
   const url = `${baseURL}/api/v2/tickets`;
   const data = {
@@ -77,12 +81,16 @@ const createIssue = async () => {
   }
 };
 
+
+// 更新zendesk issue
+// 参数:ticketId
 const updateIssue = async () => {
   const ticketId = await findTicketId();
 
   if (ticketId == -1) return;
 
   const requesterId = await self.issue.get("zendesk_requester_id");
+
   const url = `${baseURL}/api/v2/tickets/${ticketId}`;
   const data = {
     "ticket": {
@@ -108,6 +116,8 @@ const updateIssue = async () => {
     system.printf(`Issue Updated TicketId:${res.data.ticket.id}`);
 };
 
+// 删除zendesk issue
+// 参数:ticketId
 const deleteIssue = async () => {
   const ticketId = await findTicketId();
   if (ticketId == -1) return;
@@ -133,7 +143,6 @@ const deleteIssue = async () => {
 // ======================================================================
 
 
-// Entry function
 const main = async () => {
   switch (self.action) {
     case IssueAction.create:
@@ -142,20 +151,22 @@ const main = async () => {
     case IssueAction.update:
       await updateIssue();
       break;
-    case IssueAction.softDelete:
-      await deleteIssue();
-      break;
     case IssueAction.hardDelete:
-      break;
-    case IssueAction.test:
-      break;
-    case IssueAction.call:
-      break;
-    case IssueAction.column:
+      await deleteIssue();
       break;
   }
 
 };
 
-// Is currently in async function
-return await main();
+//Filter disallowed actions.
+
+const allowAction = [IssueAction.create, IssueAction.update, IssueAction.hardDelete];
+
+
+const index = allowAction.findIndex((action) => {
+  return action == self.action;
+});
+if (index != -1)
+  await main();
+else
+  return false;
