@@ -28,7 +28,7 @@ const getPriorityText = () => {
   }
 };
 const parseAirTableFields = (issue) => {
-  return {
+  let data = {
     "title": issue.title,
     "description": issue.descriptionText,
     "type": issue.type,
@@ -39,8 +39,19 @@ const parseAirTableFields = (issue) => {
     "userName": issue.reporter.name,
     "userEmail": issue.reporter.email
   };
+  if (self.issue.attachments) {
+    let size = issue.attachments.length > 5 ? 5 : issue.attachments.length;
+    for (let i = 0; i < size; i++) {
+      let key = `file_${i + 1}`;
+      data[key] = [
+        {
+          "url": issue.attachments[i].url
+        }
+      ];
+    }
+  }
+  return data;
 }
-
 
 const createTable = async () => {
   const url = `https://api.airtable.com/v0/meta/bases/${g_baseId}/tables`;
@@ -105,6 +116,7 @@ const createTable = async () => {
     ],
     "name": g_tableName
   };
+
 
   const { err, res } = await http.send("post", url,
     {
@@ -205,7 +217,6 @@ const deleteIssue = async () => {
 // ======================================================================
 
 
-
 // Entry function
 const main = async () => {
   if (g_tableId == null) {
@@ -231,6 +242,9 @@ const main = async () => {
   }
 
 };
+
+
+
 
 //Filter disallowed actions.
 

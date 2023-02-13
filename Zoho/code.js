@@ -10,6 +10,8 @@ const DESK_HOST = (zone == 0 ? "desk.zoho.com.cn" : "desk.zoho.com");
 let refreshToken = await self.storage.get("refresh_token");
 let accessToken = await self.storage.get("access_token");
 
+
+
 // Update token
 const updateStorage = async (result) => {
   const dueTime = new Date().getTime() + (result.expires_in - 60) * 1000; //提前60秒到期
@@ -19,25 +21,13 @@ const updateStorage = async (result) => {
   await self.storage.del("department_id");
   system.printf("Authorization successful, token expiration time:", dueTime);
 
-  await getDefaultDepartmentId(result.access_token);
-
-  access_token = result.access_token;
-};
-
-// Empty token
-const delToken = async () => {
-  await self.storage.del("access_token");
-  await self.storage.del("refresh_token");
-  await self.storage.del("due_time");
+  accessToken = result.access_token;
+  refreshToken = result.refresh_token;
 };
 
 // Authorization
 const authorization = async () => {
 
-  if (refreshToken != null) {
-    system.printf("The application has been authorized");
-    return false;
-  }
   let url = `https://${OAUTH_HOST}/oauth/v2/token?code=%s&grant_type=authorization_code&client_id=%s&client_secret=%s&access_type=offline`;
   url = await untils.format(url, code, clientId, clientSecret);
 
@@ -54,7 +44,6 @@ const authorization = async () => {
   }
 
   await updateStorage(res.data);
-  refreshToken = await self.storage.get("refresh_token");
   return true;
 };
 
@@ -90,7 +79,7 @@ const checkToken = async () => {
 };
 
 // Take the default department ID.
-const getDefaultDepartmentId = async (accessToken) => {
+const getDefaultDepartmentId = async () => {
   const url = `https://${DESK_HOST}/api/v1/departments`;
   const { err, res } = await http.send("get", url, {
     timeout, headers:
@@ -156,7 +145,7 @@ const createTicket = async (departmentId) => {
       "phone": `${reporter.countryCode} ${reporter.mobilephone}`,
     },
     "channel": "Easiio",
-    "description": self.issue.description,
+    "description": self.issue.descriptionText,
     "email": reporter.email,
     "phone": `${reporter.countryCode} ${reporter.mobilephone}`,
     "priority": getZohoPriorityByEasiioIssue(),
@@ -263,7 +252,6 @@ const deleteTicket = async () => {
 
 // Entry function
 const main = async () => {
-
   if (refreshToken == null) {
     system.printf("First run initialize OAuth");
     if ((await authorization()) == false)
@@ -281,7 +269,7 @@ const main = async () => {
 
   // Check department ID
   if (accessToken && !(await self.storage.has("department_id")))
-    if (!await getDefaultDepartmentId(accessToken))
+    if (!await getDefaultDepartmentId())
       return;
 
   const departmentId = await self.storage.get("department_id")
